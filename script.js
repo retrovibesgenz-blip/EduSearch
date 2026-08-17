@@ -8,6 +8,19 @@ let tabs = [{url:'', hist:[], title:'New Tab'}];
 let cur = 0;
 let fs = false;
 
+function barDisplay(url) {
+  if (!url) return '';
+  if (url.startsWith('/search?q=')) {
+    try { return decodeURIComponent(url.slice(10)).replace(/\+/g, ' '); } catch(e) { return url; }
+  }
+  return url;
+}
+
+function loadUrl(url) {
+  if (!url) return;
+  frame.src = url.startsWith('/search?q=') ? url : '/proxy?url=' + encodeURIComponent(url);
+}
+
 function renderTabs() {
   tabsScroll.innerHTML = '';
   tabs.forEach((t, i) => {
@@ -26,15 +39,16 @@ function renderTabs() {
 function switchTab(i) {
   cur = i;
   const t = tabs[cur];
-  bar.value = t.url;
+  bar.value = barDisplay(t.url);
   loadbar.className = 'load-bar';
   if (t.url) {
-    frame.src = '/proxy?url=' + encodeURIComponent(t.url);
+    loadUrl(t.url);
     home.classList.add('hidden');
     browser.classList.add('active');
   } else {
     frame.src = 'about:blank';
-    goHome();
+    browser.classList.add('active');
+    home.classList.remove('hidden');
   }
   renderTabs();
 }
@@ -74,14 +88,25 @@ function nav(url) {
   renderTabs();
 }
 
-function updateTabTitle(url) {
-  try {
-    const h = new URL(url).hostname.replace('www.', '');
-    tabs[cur].title = h;
-  } catch(e) {}
+function search(q) {
+  if (!q) return;
+  const searchUrl = '/search?q=' + encodeURIComponent(q);
+  tabs[cur].url = searchUrl;
+  tabs[cur].hist.push(searchUrl);
+  tabs[cur].title = q.length > 18 ? q.slice(0, 16) + '…' : q;
+  bar.value = q;
+  loadbar.className = 'load-bar go';
+  frame.src = searchUrl;
+  home.classList.add('hidden');
+  browser.classList.add('active');
+  renderTabs();
 }
 
-function search(q) { nav('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q)); }
+function updateTabTitle(url) {
+  try {
+    tabs[cur].title = new URL(url).hostname.replace('www.', '');
+  } catch(e) {}
+}
 
 function homeGo() {
   const v = qInput.value.trim();
@@ -99,10 +124,7 @@ function go(url) { nav(url); }
 
 function goHome() {
   if (fs) exitFs();
-  const allBlank = tabs.every(t => !t.url);
-  if (!allBlank || tabs[cur].url) {
-    tabs[cur] = {url:'', hist:[], title:'New Tab'};
-  }
+  tabs[cur] = {url:'', hist:[], title:'New Tab'};
   browser.classList.remove('active');
   home.classList.remove('hidden');
   bar.value = '';
@@ -118,10 +140,10 @@ function goBack() {
     h.pop();
     const prev = h[h.length - 1];
     tabs[cur].url = prev;
-    bar.value = prev;
-    updateTabTitle(prev);
+    bar.value = barDisplay(prev);
+    if (!prev.startsWith('/search?q=')) updateTabTitle(prev);
     loadbar.className = 'load-bar go';
-    frame.src = '/proxy?url=' + encodeURIComponent(prev);
+    loadUrl(prev);
     renderTabs();
   }
 }
@@ -130,7 +152,7 @@ function reload() {
   const u = tabs[cur].url;
   if (u) {
     loadbar.className = 'load-bar go';
-    frame.src = '/proxy?url=' + encodeURIComponent(u);
+    loadUrl(u);
   }
 }
 
@@ -140,18 +162,15 @@ frame.addEventListener('load', () => {
 });
 
 window.addEventListener('message', e => {
-  if (!e.data || e.data.t !== 'nav' || !e.data.url) return;
+  if (!e.data) return;
+  if (e.data.t === 'home') { goHome(); return; }
+  if (e.data.t === 'search' && e.data.q) { search(e.data.q); return; }
+  if (e.data.t !== 'nav' || !e.data.url) return;
   const url = e.data.url;
   if (/^(about:|javascript:|data:|blob:)/.test(url)) return;
   if (url.includes('/proxy?url=')) return;
   if (url === tabs[cur].url) return;
-  tabs[cur].url = url;
-  tabs[cur].hist.push(url);
-  bar.value = url;
-  updateTabTitle(url);
-  loadbar.className = 'load-bar go';
-  frame.src = '/proxy?url=' + encodeURIComponent(url);
-  renderTabs();
+  nav(url);
 });
 
 function toggleFs() { fs ? exitFs() : enterFs(); }
